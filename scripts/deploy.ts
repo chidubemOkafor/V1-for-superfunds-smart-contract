@@ -5,10 +5,8 @@ async function main() {
   
   console.log("Deploying CreateFunding contract...");
   const createFunding = await CreateFunding.deploy();
-//   await createFunding.deployed();
 
   console.log("createFunding deployed to: ", createFunding.target);
-
 }
 
 main()

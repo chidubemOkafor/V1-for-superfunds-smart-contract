@@ -1,113 +1,103 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-contract Funding {
-    address owner;
-    uint private target;
-    uint private unlockTime;
-    uint private minimumAmount;
-    string private name;
-    uint private totalFunds;
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-    enum Status {
-        ongoing,
-        ended
-    }
+// written 2024
+// please do not try to hack this contract 
+// if you ignore my plea and are successful, you can email me at okaforchidubem7@gmail.com
 
-    Status status;
+contract Funding is ReentrancyGuard {
+    address public immutable owner;
+    address private immutable factoryOwner;
+    uint public immutable maxAmount;
+    uint public immutable unlockTime;
+    uint public immutable minAmount;
+    uint public immutable feePercentage;
+    address public immutable contractAddress = address(this);
+
+    uint public totalFunds;
+    string public issueLink;
 
     mapping(address => uint) public contributors;
-    address[] public contributorAddresses;
 
-    event ContributionMade(address indexed senderAddress, uint amount);
-    event SeedSent(address indexed Founder, uint amount);
-    event SeedReversed(address indexed InitialSender, uint amount);
-    event TargetNotMet();
-    event TargetMet();
-
-    // Constructor does not need the _owner argument
-    constructor(address _owner, string memory _name, uint _target, uint _unlockTime, uint _minimumAmount) {
-        name = _name;
-        target = _target;
-        unlockTime = _unlockTime;
-        minimumAmount = _minimumAmount;
-        owner = _owner;
-        status = Status.ongoing;
-    }
+    event ContributionMade(address indexed owner, address indexed sender, uint amount, uint totalAmount);
+    event FundsWithdrawn(address indexed owner, uint amount);
+    event FeeTransferred(address indexed factoryOwner, uint fee);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not the contract owner");
         _;
     }
 
+    constructor(
+        address _owner,
+        string memory _issueLink,
+        uint _maxAmount,
+        uint _unlockTime,
+        uint _minAmount,
+        uint _feePercentage,
+        address _factoryOwner
+    ) {
+        require(_owner != address(0), "Invalid owner address");
+        require(_factoryOwner != address(0), "Invalid factory owner address");
+        require(_maxAmount > 0, "Max amount must be greater than zero");
+        require(_minAmount > 0, "Min amount must be greater than zero");
+        require(_feePercentage <= 100, "Fee percentage cannot exceed 100");
+
+        owner = _owner;
+        issueLink = _issueLink;
+        maxAmount = _maxAmount;
+        unlockTime = _unlockTime;
+        minAmount = _minAmount;
+        feePercentage = _feePercentage;
+        factoryOwner = _factoryOwner;
+    }
+
     function contribute() external payable {
-        require(block.timestamp < unlockTime, "You can no longer contribute");
-        require(msg.value >= minimumAmount, "Not up to minimum amount");
+        require(block.timestamp < unlockTime, "Funding period has ended");
+        require(msg.value >= minAmount, "Contribution below minimum amount");
 
-        totalFunds += msg.value;
+        uint contribution = msg.value;
+        uint total = totalFunds + contribution;
 
-        if (contributors[msg.sender] == 0) {
-            contributorAddresses.push(msg.sender);
+        if (total > maxAmount) {
+            uint refundAmount = total - maxAmount;
+
+            // Refund excess amount
+            (bool success, ) = msg.sender.call{value: refundAmount}("");
+            require(success, "Refund failed");
+
+            contribution -= refundAmount;
         }
 
-        contributors[msg.sender] += msg.value;
+        contributors[msg.sender] += contribution;
+        totalFunds += contribution;
 
-        emit ContributionMade(msg.sender, msg.value);
+        emit ContributionMade(owner, msg.sender, contribution, totalFunds);
     }
 
-    function fundOrReject() public onlyOwner {
-        require(block.timestamp >= unlockTime, "Funding period has not ended yet");
-        require(status == Status.ongoing, "this campaign has already ended");
+    function withdraw() external onlyOwner nonReentrant {
+        require(totalFunds > 0, "No funds to withdraw");
+        require(
+            totalFunds >= maxAmount || block.timestamp >= unlockTime,
+            "Target amount not reached, and unlock time has not passed"
+        );
         
-        status = Status.ended;
+        uint fee = (totalFunds * feePercentage) / 100; // Calculate the fee
+        uint amountToSend = totalFunds - fee;
 
-        if (totalFunds >= target) {
-            (bool success, ) = owner.call{value: totalFunds}("");
-            require(success, "Transfer failed");
-            emit SeedSent(owner, totalFunds);
-            emit TargetMet();
-            delete contributorAddresses;
-        } else {
-            sendFundsBack();
-        }
+        totalFunds = 0; 
+
+        (bool successOwner, ) = owner.call{value: amountToSend}("");
+        require(successOwner, "Owner transfer failed");
+
+        (bool successFee, ) = factoryOwner.call{value: fee, gas: 4000}("");
+        require(successFee, "Fee transfer failed");
+
+        emit FundsWithdrawn(owner, amountToSend);
+        emit FeeTransferred(factoryOwner, fee);
+
     }
 
-    function sendFundsBack() private onlyOwner {
-        for (uint i = 0; i < contributorAddresses.length; i++) {
-            address contributor = contributorAddresses[i];
-            uint amount = contributors[contributor];
-
-            contributors[contributor] = 0;
-
-            (bool success, ) = contributor.call{value: amount}("");
-            require(success, "Transfer failed");
-            emit SeedReversed(contributor, amount);
-        }
-        emit TargetNotMet();
-    }
-
-    // Getter functions
-    function getName() public view returns (string memory) {
-        return name;
-    }
-
-    function getUnlockTime() public view returns (uint) {
-        return unlockTime;
-    }
-
-    function getMinimumAmount() public view returns (uint) {
-        return minimumAmount;
-    }
-
-    function getTotalFunds() public view returns (uint) {
-        return totalFunds;
-    }
-
-    function getTarget() public view returns (uint) {
-        return target;
-    }
-
-    function getStatus() public view returns (Status) {
-        return status;
-    }
 }
