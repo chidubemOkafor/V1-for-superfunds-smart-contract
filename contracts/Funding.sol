@@ -80,6 +80,7 @@ contract Funding is ReentrancyGuard {
     }
 
     function withdraw() public onlyOwner nonReentrant {
+        require(isActive, "this contract has already been withdrawn from");
         require(totalFunds > 0, "No funds to withdraw");
         require(
             block.timestamp >= unlockTime,
