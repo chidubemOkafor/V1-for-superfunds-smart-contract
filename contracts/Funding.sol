@@ -15,6 +15,7 @@ contract Funding is ReentrancyGuard {
     uint public immutable minAmount;
     uint public immutable feePercentage;
     address public immutable contractAddress = address(this);
+    bool isActive = true;
 
     uint public totalFunds;
     string public issueLink;
@@ -55,6 +56,7 @@ contract Funding is ReentrancyGuard {
     }
 
     function contribute() external payable {
+        require(isActive, "this contract has already been withdrawn from");
         require(block.timestamp < unlockTime, "Funding period has ended");
         require(msg.value >= minAmount, "Contribution below minimum amount");
 
@@ -77,10 +79,10 @@ contract Funding is ReentrancyGuard {
         emit ContributionMade(owner, msg.sender, contribution, totalFunds);
     }
 
-    function withdraw() external onlyOwner nonReentrant {
+    function withdraw() public onlyOwner nonReentrant {
         require(totalFunds > 0, "No funds to withdraw");
         require(
-            totalFunds >= maxAmount || block.timestamp >= unlockTime,
+            block.timestamp >= unlockTime,
             "Target amount not reached, and unlock time has not passed"
         );
         
@@ -94,6 +96,8 @@ contract Funding is ReentrancyGuard {
 
         (bool successFee, ) = factoryOwner.call{value: fee, gas: 4000}("");
         require(successFee, "Fee transfer failed");
+
+        isActive = true;
 
         emit FundsWithdrawn(owner, amountToSend);
         emit FeeTransferred(factoryOwner, fee);
